@@ -52,24 +52,24 @@ class PureMF(BasicModel):
 
     def __init_weight(self):
         self.embedding_user = nn.Embedding(
-            num_embeddings=self.num_users, embedding_dim=self.latent_dim
+            vocab_size=self.num_users, embedding_size=self.latent_dim
         )
         self.embedding_item = nn.Embedding(
-            num_embeddings=self.num_items, embedding_dim=self.latent_dim
+            vocab_size=self.num_items, embedding_size=self.latent_dim
         )
         print("using Normal distribution N(0,1) initialization for PureMF")
 
     def getUsersRating(self, users):
-        users = users.long()
+        users = users.astype(mindspore.int64)
         users_emb = self.embedding_user(users)
         items_emb = self.embedding_item.weight
-        scores = torch.matmul(users_emb, items_emb.t())
+        scores = ops.matmul(users_emb, items_emb.t())
         return self.f(scores)
 
     def bpr_loss(self, users, pos, neg):
-        users_emb = self.embedding_user(users.long())
-        pos_emb = self.embedding_item(pos.long())
-        neg_emb = self.embedding_item(neg.long())
+        users_emb = self.embedding_user(users.astype(mindspore.int64))
+        pos_emb = self.embedding_item(pos.astype(mindspore.int64))
+        neg_emb = self.embedding_item(neg.astype(mindspore.int64))
         pos_scores = ops.sum(users_emb * pos_emb, dim=1)
         neg_scores = ops.sum(users_emb * neg_emb, dim=1)
         loss = ops.mean(ops.softplus(neg_scores - pos_scores))
@@ -84,12 +84,12 @@ class PureMF(BasicModel):
         )
         return loss, reg_loss
 
-    def forward(self, users, items):
-        users = users.long()
-        items = items.long()
+    def construct(self, users, items):
+        users = users.astype(mindspore.int64)
+        items = items.astype(mindspore.int64)
         users_emb = self.embedding_user(users)
         items_emb = self.embedding_item(items)
-        scores = torch.sum(users_emb * items_emb, dim=1)
+        scores = ops.sum(users_emb * items_emb, dim=1)
         return self.f(scores)
 
 
@@ -179,71 +179,6 @@ class LightGCN(BasicModel):
                 initializer("normal", layer.bias.data.shape, layer.bias.data.dtype)
             )
 
-    def mlp(self):
-        uLen = self.dataset.n_users
-        vLen = self.dataset.m_items
-        combined_embedding = ops.cat(
-            (self.embedding_user.weight, self.embedding_item.weight), dim=0
-        )
-        for layer in self.mlplist:
-            combined_embedding = layer(combined_embedding)
-        user_mask, item_mask = ops.split(combined_embedding, [uLen, vLen], axis=0)
-        # user_mask.requires_grad = True
-        # item_mask.requires_grad = True
-        # self.u.weight = nn.Parameter(user_mask)
-        # self.v.weight = nn.Parameter(item_mask)
-        return ops.mm(user_mask, item_mask.t())
-
-    def encode(self, input):
-        L2 = ops.L2Normalize()
-        h = L2(input)
-        h = self.drop(h)
-
-        for i, layer in enumerate(self.q_layers):
-            h = layer(h)
-            if i != len(self.q_layers) - 1:
-                h = ops.tanh(h)
-            else:
-                mu = h[:, : self.q_dims[-1]]
-                logvar = h[:, self.q_dims[-1] :]
-        return mu, logvar
-
-    def reparameterize(self, mu, logvar):
-        if self.training:
-            std = torch.exp(0.5 * logvar)
-            eps = torch.randn_like(std)
-            return eps.mul(std).add_(mu)
-        else:
-            return mu
-
-    def decode(self, z):
-        h = z
-        for i, layer in enumerate(self.p_layers):
-            h = layer(h)
-            if i != len(self.p_layers) - 1:
-                h = ops.tanh(h)
-        return h
-
-    def vae(self, input):
-        mu, logvar = self.encode(input)
-        z = self.reparameterize(mu, logvar)
-        z = self.decode(z)
-        self.update += 1
-        if self.total_anneal_steps > 0:
-            anneal = min(self.anneal_cap, 1.0 * self.update / self.total_anneal_steps)
-        else:
-            anneal = self.anneal_cap
-
-        kl_loss = (
-            -0.5
-            * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
-            * anneal
-        )
-
-        ce_loss = -(ops.log_softmax(z, 1) * input).sum(1).mean()
-
-        return z, kl_loss + ce_loss
-
     def __init_weight(self):
         self.num_users = self.dataset.n_users
         self.num_items = self.dataset.m_items
@@ -320,50 +255,32 @@ class LightGCN(BasicModel):
         users_emb = self.embedding_user.embedding_table
         items_emb = self.embedding_item.embedding_table
         all_emb = ops.cat([users_emb, items_emb])
-        # all_emb = ops.dense_to_sparse_coo(all_emb)
-        # print(all_emb)
-        #   torch.split(all_emb , [self.num_users, self.num_items])
-        embs = [all_emb]
-        if self.config["dropout"]:
-            if self.training:
-                print("droping")
-                g_droped = self.__dropout(self.keep_prob)
-            else:
-                g_droped = self.Graph
-        else:
-            g_droped = self.Graph
 
+        embs = [all_emb]
+        # if self.config["dropout"]:
+        #     if self.training:
+        #         print("droping")
+        #         g_droped = self.__dropout(self.keep_prob)
+        #     else:
+        #         g_droped = self.Graph
+        # else:
+        g_droped = self.Graph
+        print("111111111111")
         from mindspore.common.initializer import Zero
 
-        # sparse_to_dense = ops.SparseToDense()
-        # g_droped = sparse_to_dense(g_droped.indices, g_droped.values, g_droped.shape)
+        # print(g_droped.values)
         g_droped = g_droped.to_dense()
-        # print("111111111111", g_droped, g_droped.shape)
-        # dense_tensor = mindspore.Tensor(
-        #     initializer("zero", g_droped.shape, mindspore.float32)
-        # )
+        # print(g_droped)
 
-        # indices = g_droped.indices
-        # values = g_droped.values
-        # # 使用for循环将values中的值填充到正确的位置
-        # from tqdm import tqdm
-
-        # for i in tqdm(range(len(values))):
-        #     user_idx = indices[i][0]  # 用户索引
-        #     item_idx = indices[i][1]  # 项目索引
-        #     dense_tensor[user_idx, item_idx] = values[i]
-        # g_droped = dense_tensor
-        # print(dense_tensor, dense_tensor.shape)
-        # print("111111111111",all_emb.shape)
         for layer in range(self.n_layers):
             if self.A_split:
                 temp_emb = []
                 for f in range(len(g_droped)):
-                    temp_emb.append(ops.mm(g_droped[f], all_emb))
+                    temp_emb.append(g_droped[f].mm(all_emb))
                 side_emb = ops.cat(temp_emb, axis=0)
                 all_emb = side_emb
             else:
-                all_emb = ops.mm(g_droped, all_emb)
+                all_emb = g_droped.mm(all_emb)
             embs.append(all_emb)
         embs = ops.stack(embs, axis=1)
         light_out = ops.mean(embs, axis=1)
@@ -389,80 +306,3 @@ class LightGCN(BasicModel):
         pos_emb_ego = self.embedding_item(pos_items)
         neg_emb_ego = self.embedding_item(neg_items)
         return users_emb, pos_emb, neg_emb, users_emb_ego, pos_emb_ego, neg_emb_ego
-
-    def bpr_loss(self, users, pos, neg):
-        (users_emb, pos_emb, neg_emb, userEmb0, posEmb0, negEmb0) = self.getEmbedding(
-            users.long(), pos.long(), neg.long()
-        )
-        # print(users_emb.shape, pos_emb.shape, neg_emb.shape,
-        # userEmb0.shape,  posEmb0.shape, negEmb0.shape)
-        reg_loss = (
-            (1 / 2)
-            * (
-                userEmb0.norm(2).pow(2)
-                + posEmb0.norm(2).pow(2)
-                + negEmb0.norm(2).pow(2)
-            )
-            / float(len(users))
-        )
-        pos_scores = torch.mul(users_emb, pos_emb)
-        pos_scores = torch.sum(pos_scores, dim=1)
-        neg_scores = torch.mul(users_emb, neg_emb)
-        neg_scores = torch.sum(neg_scores, dim=1)
-
-        loss = torch.mean(torch.nn.functional.softplus(neg_scores - pos_scores))
-        unique_items = torch.unique(torch.cat([pos, neg]))
-        # 2. 创建一个全为零的二维tensor
-        matrix = torch.zeros((users.size(0), unique_items.size(0)), device=world.device)
-        mask_pos = (unique_items.unsqueeze(0) == pos.unsqueeze(1)).float()
-        mask_neg = (unique_items.unsqueeze(0) == neg.unsqueeze(1)).float()
-
-        matrix += mask_pos
-        matrix -= mask_neg  # 注意这里，我们用减法来从之前设置的1的位置置为0
-        C = utils2(
-            matrix,
-            torch.mm(self.embedding_user(users), self.embedding_item(unique_items).t()),
-        )
-
-        return loss + C, reg_loss
-
-    def forward(self, users, items):
-        # compute embedding
-        all_users, all_items = self.computer()
-        # print('forward')
-        # all_users, all_items = self.computer()
-        users_emb = all_users[users]
-        items_emb = all_items[items]
-        inner_pro = torch.mul(users_emb, items_emb)
-        gamma = torch.sum(inner_pro, dim=1)
-        return gamma
-
-    def forward1(self, W):
-        z, loss2 = self.vae(W)
-        return z, loss2
-
-    def forward1(self, W):
-        RR = torch.mm(
-            self.embedding_user.weight, self.embedding_item.weight.t()
-        )  # 随着UV的更新R也更新，即R'
-        # RR = self.mlp()
-        torch.cuda.empty_cache()
-        import torch.nn.functional as F
-
-        logp_R = ops.log_softmax(RR, axis=-1)  # [6001, 6001]
-        tenW = W.to(world.device)  # tenW = W不在同一个设备上
-        # tenW = F.logsigmoid(tenW)
-        p_R = ops.softmax(tenW, axis=-1)  # [6001, 6001]
-        del tenW
-        kl_sum_R = torch.nn.KLDivLoss(reduction="sum")(logp_R, p_R)
-        del logp_R, p_R
-        torch.cuda.empty_cache()
-        # RR = self.mlp()
-        # C = utils2(W.to(device), RR)
-        RR = self.mlp()
-        # z,loss2 = self.vae(W)
-        logp_R = ops.log_softmax(W, axis=-1)
-        p_R = ops.softmax(RR, axis=-1)
-        loss3 = torch.nn.KLDivLoss(reduction="sum")(logp_R, p_R)  # 0.1856
-        # print("klR,loss2.loss3",kl_sum_R.item(),loss3.item())
-        return RR, 0.1 * kl_sum_R + loss3

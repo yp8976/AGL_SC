@@ -7,6 +7,7 @@ Xiangnan He et al. LightGCN: Simplifying and Powering Graph Convolution Network 
 Design Dataset here
 Every dataset's index has to start at 0
 """
+
 import os
 from os.path import join
 import sys
@@ -16,6 +17,7 @@ from mindspore import Tensor, COOTensor
 import mindspore.ops as ops
 import numpy as np
 import pandas as pd
+
 # from torch.utils.data import Dataset
 from mindspore.dataset import GeneratorDataset
 from scipy.sparse import csr_matrix
@@ -66,7 +68,7 @@ class BasicDataset(GeneratorDataset):
         """
         build a graph in torch.sparse.IntTensor.
         Details in NGCF's matrix form
-        A = 
+        A =
             |I,   R|
             |R^T, I|
         """
@@ -76,11 +78,11 @@ class BasicDataset(GeneratorDataset):
 class Mlens(BasicDataset):
     def __init__(self, path="../data/ml-1m"):
         cprint("loading [ml-1m]")
-        self.mode_dict = {'train': 0, "test": 1}
-        self.mode = self.mode_dict['train']
+        self.mode_dict = {"train": 0, "test": 1}
+        self.mode = self.mode_dict["train"]
 
-        trainData = pd.read_table(join(path, 'train.dat'), header=None)
-        testData = pd.read_table(join(path, 'test.dat'), header=None)
+        trainData = pd.read_table(join(path, "train.dat"), header=None)
+        testData = pd.read_table(join(path, "test.dat"), header=None)
         # train_user_count = trainData[0].nunique()
         # train_item_count = trainData[1].nunique()
         # test_user_count = testData[0].nunique()
@@ -107,10 +109,13 @@ class Mlens(BasicDataset):
         self.Graph = None
         print(f"ml-1m users,items : {self.n_users,self.m_items}")
         print(
-            f"ml-1m Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}")
+            f"ml-1m Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}"
+        )
         # (users,items), bipartite graph
-        self.UserItemNet = csr_matrix((np.ones(len(
-            self.trainUser)), (self.trainUser, self.trainItem)), shape=(self.n_users, self.m_items))
+        self.UserItemNet = csr_matrix(
+            (np.ones(len(self.trainUser)), (self.trainUser, self.trainItem)),
+            shape=(self.n_users, self.m_items),
+        )
         # pre-calculate
         self._allPos = self.getUserPosItems(list(range(self.n_users)))
         self.allNeg = []
@@ -145,7 +150,7 @@ class Mlens(BasicDataset):
         """
         build a graph in torch.sparse.IntTensor.
         Details in NGCF's matrix form
-        A = 
+        A =
             |I,   R|
             |R^T, I|
         """
@@ -154,22 +159,28 @@ class Mlens(BasicDataset):
             item_dim = mindspore.Tensor(self.trainItem)
 
             first_sub = ops.stack([user_dim, item_dim + self.n_users])
-            second_sub = ops.stack([item_dim+self.n_users, user_dim])
+            second_sub = ops.stack([item_dim + self.n_users, user_dim])
             index = ops.cat([first_sub, second_sub], axis=1)
             data = ops.ones(index.size(-1)).astype(mindspore.int32)
             self.Graph = torch.sparse.IntTensor(
-                index, data, ([self.n_users+self.m_items, self.n_users+self.m_items]))
+                index,
+                data,
+                ([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             dense = self.Graph.to_dense()
             D = torch.sum(dense, dim=1).float()
-            D[D == 0.] = 1.
+            D[D == 0.0] = 1.0
             D_sqrt = torch.sqrt(D).unsqueeze(dim=0)
-            dense = dense/D_sqrt
-            dense = dense/D_sqrt.t()
+            dense = dense / D_sqrt
+            dense = dense / D_sqrt.t()
             index = dense.nonzero()
             data = dense[dense >= 1e-9]
             assert len(index) == len(data)
-            self.Graph = torch.sparse.FloatTensor(index.t(), data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.FloatTensor(
+                index.t(),
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             self.Graph = self.Graph.coalesce().to(world.device)
         return self.Graph
 
@@ -188,7 +199,7 @@ class Mlens(BasicDataset):
         return test_data
 
     def getUserItemFeedback(self, users, items):
-        return np.array(self.UserItemNet[users, items]).astype('uint8').reshape((-1, ))
+        return np.array(self.UserItemNet[users, items]).astype("uint8").reshape((-1,))
 
     def getUserPosItems(self, users):
         posItems = []
@@ -215,7 +226,7 @@ class Mlens(BasicDataset):
         """
         change dataset mode to offer test data to dataloader
         """
-        self.mode = self.mode_dict['test']
+        self.mode = self.mode_dict["test"]
 
     def __len__(self):
         return len(self.trainUniqueUsers)
@@ -224,11 +235,11 @@ class Mlens(BasicDataset):
 class Ml100K(BasicDataset):
     def __init__(self, path="../data/ml-100k"):
         cprint("loading [ml-100k]")
-        self.mode_dict = {'train': 0, "test": 1}
-        self.mode = self.mode_dict['train']
+        self.mode_dict = {"train": 0, "test": 1}
+        self.mode = self.mode_dict["train"]
 
-        trainData = pd.read_table(join(path, 'train.dat'), header=None)
-        testData = pd.read_table(join(path, 'test.dat'), header=None)
+        trainData = pd.read_table(join(path, "train.dat"), header=None)
+        testData = pd.read_table(join(path, "test.dat"), header=None)
         # train_user_count = trainData[0].nunique()
         # train_item_count = trainData[1].nunique()
         # test_user_count = testData[0].nunique()
@@ -255,10 +266,13 @@ class Ml100K(BasicDataset):
         self.Graph = None
         print(f"ml-100k users,items : {self.n_users,self.m_items}")
         print(
-            f"ml-100k Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}")
+            f"ml-100k Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}"
+        )
         # (users,items), bipartite graph
-        self.UserItemNet = csr_matrix((np.ones(len(
-            self.trainUser)), (self.trainUser, self.trainItem)), shape=(self.n_users, self.m_items))
+        self.UserItemNet = csr_matrix(
+            (np.ones(len(self.trainUser)), (self.trainUser, self.trainItem)),
+            shape=(self.n_users, self.m_items),
+        )
         # pre-calculate
         self._allPos = self.getUserPosItems(list(range(self.n_users)))
         self.allNeg = []
@@ -293,7 +307,7 @@ class Ml100K(BasicDataset):
         """
         build a graph in torch.sparse.IntTensor.
         Details in NGCF's matrix form
-        A = 
+        A =
             |I,   R|
             |R^T, I|
         """
@@ -302,22 +316,28 @@ class Ml100K(BasicDataset):
             item_dim = torch.LongTensor(self.trainItem)
 
             first_sub = torch.stack([user_dim, item_dim + self.n_users])
-            second_sub = torch.stack([item_dim+self.n_users, user_dim])
+            second_sub = torch.stack([item_dim + self.n_users, user_dim])
             index = torch.cat([first_sub, second_sub], dim=1)
             data = torch.ones(index.size(-1)).int()
-            self.Graph = torch.sparse.IntTensor(index, data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.IntTensor(
+                index,
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             dense = self.Graph.to_dense()
             D = torch.sum(dense, dim=1).float()
-            D[D == 0.] = 1.
+            D[D == 0.0] = 1.0
             D_sqrt = torch.sqrt(D).unsqueeze(dim=0)
-            dense = dense/D_sqrt
-            dense = dense/D_sqrt.t()
+            dense = dense / D_sqrt
+            dense = dense / D_sqrt.t()
             index = dense.nonzero()
             data = dense[dense >= 1e-9]
             assert len(index) == len(data)
-            self.Graph = torch.sparse.FloatTensor(index.t(), data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.FloatTensor(
+                index.t(),
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             self.Graph = self.Graph.coalesce().to(world.device)
         return self.Graph
 
@@ -336,7 +356,7 @@ class Ml100K(BasicDataset):
         return test_data
 
     def getUserItemFeedback(self, users, items):
-        return np.array(self.UserItemNet[users, items]).astype('uint8').reshape((-1, ))
+        return np.array(self.UserItemNet[users, items]).astype("uint8").reshape((-1,))
 
     def getUserPosItems(self, users):
         posItems = []
@@ -363,7 +383,7 @@ class Ml100K(BasicDataset):
         """
         change dataset mode to offer test data to dataloader
         """
-        self.mode = self.mode_dict['test']
+        self.mode = self.mode_dict["test"]
 
     def __len__(self):
         return len(self.trainUniqueUsers)
@@ -372,11 +392,11 @@ class Ml100K(BasicDataset):
 class dblp(BasicDataset):
     def __init__(self, path="../data/dblp"):
         cprint("loading [dblp]")
-        self.mode_dict = {'train': 0, "test": 1}
-        self.mode = self.mode_dict['train']
+        self.mode_dict = {"train": 0, "test": 1}
+        self.mode = self.mode_dict["train"]
 
-        trainData = pd.read_table(join(path, 'train.dat'), header=None)
-        testData = pd.read_table(join(path, 'test.dat'), header=None)
+        trainData = pd.read_table(join(path, "train.dat"), header=None)
+        testData = pd.read_table(join(path, "test.dat"), header=None)
         # train_user_count = trainData[0].nunique()
         # train_item_count = trainData[1].nunique()
         # test_user_count = testData[0].nunique()
@@ -392,8 +412,8 @@ class dblp(BasicDataset):
         self.testUniqueUsers = np.unique(self.testUser)
         self.testItem = np.array(testData[:][1]).astype(int)
 
-        self.n_user = max(self.trainUser.max()+1, self.testUser.max()+1)
-        self.m_item = max(self.trainItem.max()+1, self.testItem.max()+1)
+        self.n_user = max(self.trainUser.max() + 1, self.testUser.max() + 1)
+        self.m_item = max(self.trainItem.max() + 1, self.testItem.max() + 1)
         # 要创建稀疏矩阵，索引是从0开始的，所以要在总数上减1
         # self.trainUser -= 1
         # self.trainItem -= 1
@@ -403,10 +423,13 @@ class dblp(BasicDataset):
         self.Graph = None
         print(f"dblp users,items : {self.n_users,self.m_items}")
         print(
-            f"dblp Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}")
+            f"dblp Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}"
+        )
         # (users,items), bipartite graph
-        self.UserItemNet = csr_matrix((np.ones(len(
-            self.trainUser)), (self.trainUser, self.trainItem)), shape=(self.n_users, self.m_items))
+        self.UserItemNet = csr_matrix(
+            (np.ones(len(self.trainUser)), (self.trainUser, self.trainItem)),
+            shape=(self.n_users, self.m_items),
+        )
         # pre-calculate
         self._allPos = self.getUserPosItems(list(range(self.n_users)))
         self.allNeg = []
@@ -441,7 +464,7 @@ class dblp(BasicDataset):
         """
         build a graph in torch.sparse.IntTensor.
         Details in NGCF's matrix form
-        A = 
+        A =
             |I,   R|
             |R^T, I|
         """
@@ -450,22 +473,28 @@ class dblp(BasicDataset):
             item_dim = torch.LongTensor(self.trainItem)
 
             first_sub = torch.stack([user_dim, item_dim + self.n_users])
-            second_sub = torch.stack([item_dim+self.n_users, user_dim])
+            second_sub = torch.stack([item_dim + self.n_users, user_dim])
             index = torch.cat([first_sub, second_sub], dim=1)
             data = torch.ones(index.size(-1)).int()
-            self.Graph = torch.sparse.IntTensor(index, data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.IntTensor(
+                index,
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             dense = self.Graph.to_dense()
             D = torch.sum(dense, dim=1).float()
-            D[D == 0.] = 1.
+            D[D == 0.0] = 1.0
             D_sqrt = torch.sqrt(D).unsqueeze(dim=0)
-            dense = dense/D_sqrt
-            dense = dense/D_sqrt.t()
+            dense = dense / D_sqrt
+            dense = dense / D_sqrt.t()
             index = dense.nonzero()
             data = dense[dense >= 1e-9]
             assert len(index) == len(data)
-            self.Graph = torch.sparse.FloatTensor(index.t(), data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.FloatTensor(
+                index.t(),
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             self.Graph = self.Graph.coalesce().to(world.device)
         return self.Graph
 
@@ -484,7 +513,7 @@ class dblp(BasicDataset):
         return test_data
 
     def getUserItemFeedback(self, users, items):
-        return np.array(self.UserItemNet[users, items]).astype('uint8').reshape((-1, ))
+        return np.array(self.UserItemNet[users, items]).astype("uint8").reshape((-1,))
 
     def getUserPosItems(self, users):
         posItems = []
@@ -511,7 +540,7 @@ class dblp(BasicDataset):
         """
         change dataset mode to offer test data to dataloader
         """
-        self.mode = self.mode_dict['test']
+        self.mode = self.mode_dict["test"]
 
     def __len__(self):
         return len(self.trainUniqueUsers)
@@ -520,11 +549,11 @@ class dblp(BasicDataset):
 class Mlens1M(BasicDataset):
     def __init__(self, path="../data/ml-1m"):
         cprint("loading [ml-1m]")
-        self.mode_dict = {'train': 0, "test": 1}
-        self.mode = self.mode_dict['train']
+        self.mode_dict = {"train": 0, "test": 1}
+        self.mode = self.mode_dict["train"]
 
-        train_file = path + '/train.txt'
-        test_file = path + '/test.txt'
+        train_file = path + "/train.txt"
+        test_file = path + "/test.txt"
         self.path = path
         trainUniqueUsers, trainItem, trainUser = [], [], []
         testUniqueUsers, testItem, testUser = [], [], []
@@ -538,7 +567,7 @@ class Mlens1M(BasicDataset):
         with open(train_file) as f:
             for l in f.readlines():
                 if len(l) > 0:
-                    l = l.strip('\n').split(' ')
+                    l = l.strip("\n").split(" ")
                     items = [int(i) for i in l[1:]]
                     uid = int(l[0])
                     trainUniqueUsers.append(uid)
@@ -555,7 +584,7 @@ class Mlens1M(BasicDataset):
         with open(test_file) as f:
             for l in f.readlines():
                 if len(l) > 0:
-                    l = l.strip('\n').split(' ')
+                    l = l.strip("\n").split(" ")
                     items = [int(i) for i in l[1:]]
                     uid = int(l[0])
                     testUniqueUsers.append(uid)
@@ -576,10 +605,13 @@ class Mlens1M(BasicDataset):
         print(f"{self.testDataSize} interactions for testing")
         print(f"ml-1m users,items : {self.n_users,self.m_items}")
         print(
-            f"ml-1m Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}")
+            f"ml-1m Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}"
+        )
         # (users,items), bipartite graph
-        self.UserItemNet = csr_matrix((np.ones(len(
-            self.trainUser)), (self.trainUser, self.trainItem)), shape=(self.n_users, self.m_items))
+        self.UserItemNet = csr_matrix(
+            (np.ones(len(self.trainUser)), (self.trainUser, self.trainItem)),
+            shape=(self.n_users, self.m_items),
+        )
         # pre-calculate
         self._allPos = self.getUserPosItems(list(range(self.n_users)))
         self.allNeg = []
@@ -614,7 +646,7 @@ class Mlens1M(BasicDataset):
         """
         build a graph in torch.sparse.IntTensor.
         Details in NGCF's matrix form
-        A = 
+        A =
             |I,   R|
             |R^T, I|
         """
@@ -623,22 +655,28 @@ class Mlens1M(BasicDataset):
             item_dim = torch.LongTensor(self.trainItem)
 
             first_sub = torch.stack([user_dim, item_dim + self.n_users])
-            second_sub = torch.stack([item_dim+self.n_users, user_dim])
+            second_sub = torch.stack([item_dim + self.n_users, user_dim])
             index = torch.cat([first_sub, second_sub], dim=1)
             data = torch.ones(index.size(-1)).int()
-            self.Graph = torch.sparse.IntTensor(index, data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.IntTensor(
+                index,
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             dense = self.Graph.to_dense()
             D = torch.sum(dense, dim=1).float()
-            D[D == 0.] = 1.
+            D[D == 0.0] = 1.0
             D_sqrt = torch.sqrt(D).unsqueeze(dim=0)
-            dense = dense/D_sqrt
-            dense = dense/D_sqrt.t()
+            dense = dense / D_sqrt
+            dense = dense / D_sqrt.t()
             index = dense.nonzero()
             data = dense[dense >= 1e-9]
             assert len(index) == len(data)
-            self.Graph = torch.sparse.FloatTensor(index.t(), data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.FloatTensor(
+                index.t(),
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             self.Graph = self.Graph.coalesce().to(world.device)
         return self.Graph
 
@@ -657,7 +695,7 @@ class Mlens1M(BasicDataset):
         return test_data
 
     def getUserItemFeedback(self, users, items):
-        return np.array(self.UserItemNet[users, items]).astype('uint8').reshape((-1, ))
+        return np.array(self.UserItemNet[users, items]).astype("uint8").reshape((-1,))
 
     def getUserPosItems(self, users):
         posItems = []
@@ -684,7 +722,7 @@ class Mlens1M(BasicDataset):
         """
         change dataset mode to offer test data to dataloader
         """
-        self.mode = self.mode_dict['test']
+        self.mode = self.mode_dict["test"]
 
     def __len__(self):
         return len(self.trainUniqueUsers)
@@ -700,10 +738,10 @@ class LastFM(BasicDataset):
     def __init__(self, path="../data/lastfm"):
         # train or test
         cprint("loading [last fm]")
-        self.mode_dict = {'train': 0, "test": 1}
-        self.mode = self.mode_dict['train']
-        trainData = pd.read_table(join(path, 'train.txt'), header=None)
-        testData = pd.read_table(join(path, 'test.txt'), header=None)
+        self.mode_dict = {"train": 0, "test": 1}
+        self.mode = self.mode_dict["train"]
+        trainData = pd.read_table(join(path, "train.txt"), header=None)
+        testData = pd.read_table(join(path, "test.txt"), header=None)
 
         trainData -= 1
         testData -= 1
@@ -719,10 +757,13 @@ class LastFM(BasicDataset):
         self.testItem = np.array(testData[:][1])
         self.Graph = None
         print(
-            f"LastFm Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}")
+            f"LastFm Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}"
+        )
 
-        self.UserItemNet = csr_matrix((np.ones(len(
-            self.trainUser)), (self.trainUser, self.trainItem)), shape=(self.n_users, self.m_items))
+        self.UserItemNet = csr_matrix(
+            (np.ones(len(self.trainUser)), (self.trainUser, self.trainItem)),
+            shape=(self.n_users, self.m_items),
+        )
 
         self._allPos = self.getUserPosItems(list(range(self.n_users)))
         self.allNeg = []
@@ -759,22 +800,28 @@ class LastFM(BasicDataset):
             item_dim = torch.tensor(self.trainItem, dtype=torch.long)
 
             first_sub = torch.stack([user_dim, item_dim + self.n_users])
-            second_sub = torch.stack([item_dim+self.n_users, user_dim])
+            second_sub = torch.stack([item_dim + self.n_users, user_dim])
             index = torch.cat([first_sub, second_sub], dim=1)
             data = torch.ones(index.size(-1)).float()
-            self.Graph = torch.sparse.FloatTensor(index, data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.FloatTensor(
+                index,
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             dense = self.Graph.to_dense()
             D = torch.sum(dense, dim=1).float()
-            D[D == 0.] = 1.
+            D[D == 0.0] = 1.0
             D_sqrt = torch.sqrt(D).unsqueeze(dim=0)
-            dense = dense/D_sqrt
-            dense = dense/D_sqrt.t()
+            dense = dense / D_sqrt
+            dense = dense / D_sqrt.t()
             index = dense.nonzero()
             data = dense[dense >= 1e-9]
             assert len(index) == len(data)
-            self.Graph = torch.sparse.FloatTensor(index.t(), data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.FloatTensor(
+                index.t(),
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             self.Graph = self.Graph.coalesce().to(world.device)
         return self.Graph
 
@@ -802,7 +849,7 @@ class LastFM(BasicDataset):
             feedback [-1]
         """
         # print(self.UserItemNet[users, items])
-        return np.array(self.UserItemNet[users, items]).astype('uint8').reshape((-1, ))
+        return np.array(self.UserItemNet[users, items]).astype("uint8").reshape((-1,))
 
     def getUserPosItems(self, users):
         posItems = []
@@ -825,7 +872,7 @@ class LastFM(BasicDataset):
         """
         change dataset mode to offer test data to dataloader
         """
-        self.mode = self.mode_dict['test']
+        self.mode = self.mode_dict["test"]
 
     def __len__(self):
         return len(self.trainUniqueUsers)
@@ -834,11 +881,11 @@ class LastFM(BasicDataset):
 class lastfm(BasicDataset):
     def __init__(self, path="../data/lastfm"):
         cprint("loading [lastfm]")
-        self.mode_dict = {'train': 0, "test": 1}
-        self.mode = self.mode_dict['train']
+        self.mode_dict = {"train": 0, "test": 1}
+        self.mode = self.mode_dict["train"]
 
-        trainData = pd.read_table(join(path, 'train.dat'), header=None)
-        testData = pd.read_table(join(path, 'test.dat'), header=None)
+        trainData = pd.read_table(join(path, "train.dat"), header=None)
+        testData = pd.read_table(join(path, "test.dat"), header=None)
         # train_user_count = trainData[0].nunique()
         # train_item_count = trainData[1].nunique()
         # test_user_count = testData[0].nunique()
@@ -865,10 +912,13 @@ class lastfm(BasicDataset):
         self.Graph = None
         print(f"lastfm users,items : {self.n_users,self.m_items}")
         print(
-            f"lastfm Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}")
+            f"lastfm Sparsity : {(len(self.trainUser) + len(self.testUser))/self.n_users/self.m_items}"
+        )
         # (users,items), bipartite graph
-        self.UserItemNet = csr_matrix((np.ones(len(
-            self.trainUser)), (self.trainUser, self.trainItem)), shape=(self.n_users, self.m_items))
+        self.UserItemNet = csr_matrix(
+            (np.ones(len(self.trainUser)), (self.trainUser, self.trainItem)),
+            shape=(self.n_users, self.m_items),
+        )
         # pre-calculate
         self._allPos = self.getUserPosItems(list(range(self.n_users)))
         self.allNeg = []
@@ -903,7 +953,7 @@ class lastfm(BasicDataset):
         """
         build a graph in torch.sparse.IntTensor.
         Details in NGCF's matrix form
-        A = 
+        A =
             |I,   R|
             |R^T, I|
         """
@@ -912,22 +962,28 @@ class lastfm(BasicDataset):
             item_dim = torch.LongTensor(self.trainItem)
 
             first_sub = torch.stack([user_dim, item_dim + self.n_users])
-            second_sub = torch.stack([item_dim+self.n_users, user_dim])
+            second_sub = torch.stack([item_dim + self.n_users, user_dim])
             index = torch.cat([first_sub, second_sub], dim=1)
             data = torch.ones(index.size(-1)).int()
-            self.Graph = torch.sparse.IntTensor(index, data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.IntTensor(
+                index,
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             dense = self.Graph.to_dense()
             D = torch.sum(dense, dim=1).float()
-            D[D == 0.] = 1.
+            D[D == 0.0] = 1.0
             D_sqrt = torch.sqrt(D).unsqueeze(dim=0)
-            dense = dense/D_sqrt
-            dense = dense/D_sqrt.t()
+            dense = dense / D_sqrt
+            dense = dense / D_sqrt.t()
             index = dense.nonzero()
             data = dense[dense >= 1e-9]
             assert len(index) == len(data)
-            self.Graph = torch.sparse.FloatTensor(index.t(), data, torch.Size(
-                [self.n_users+self.m_items, self.n_users+self.m_items]))
+            self.Graph = torch.sparse.FloatTensor(
+                index.t(),
+                data,
+                torch.Size([self.n_users + self.m_items, self.n_users + self.m_items]),
+            )
             self.Graph = self.Graph.coalesce().to(world.device)
         return self.Graph
 
@@ -946,7 +1002,7 @@ class lastfm(BasicDataset):
         return test_data
 
     def getUserItemFeedback(self, users, items):
-        return np.array(self.UserItemNet[users, items]).astype('uint8').reshape((-1, ))
+        return np.array(self.UserItemNet[users, items]).astype("uint8").reshape((-1,))
 
     def getUserPosItems(self, users):
         posItems = []
@@ -973,7 +1029,7 @@ class lastfm(BasicDataset):
         """
         change dataset mode to offer test data to dataloader
         """
-        self.mode = self.mode_dict['test']
+        self.mode = self.mode_dict["test"]
 
     def __len__(self):
         return len(self.trainUniqueUsers)
@@ -988,15 +1044,15 @@ class Loader(BasicDataset):
 
     def __init__(self, config=world.config, path="../data/Gowalla"):
         # train or test
-        cprint(f'loading [{path}]')
-        self.split = config['A_split']
-        self.folds = config['A_n_fold']
-        self.mode_dict = {'train': 0, "test": 1}
-        self.mode = self.mode_dict['train']
+        cprint(f"loading [{path}]")
+        self.split = config["A_split"]
+        self.folds = config["A_n_fold"]
+        self.mode_dict = {"train": 0, "test": 1}
+        self.mode = self.mode_dict["train"]
         self.n_user = 0
         self.m_item = 0
-        train_file = path + '/train.txt'
-        test_file = path + '/test.txt'
+        train_file = path + "/train.txt"
+        test_file = path + "/test.txt"
         self.path = path
         trainUniqueUsers, trainItem, trainUser = [], [], []
         testUniqueUsers, testItem, testUser = [], [], []
@@ -1006,7 +1062,7 @@ class Loader(BasicDataset):
         with open(train_file) as f:
             for l in f.readlines():
                 if len(l) > 0:
-                    l = l.strip('\n').split(' ')
+                    l = l.strip("\n").split(" ")
                     items = [int(i) for i in l[1:]]
                     uid = int(l[0])
                     trainUniqueUsers.append(uid)
@@ -1022,7 +1078,7 @@ class Loader(BasicDataset):
         with open(test_file) as f:
             for l in f.readlines():
                 if len(l) > 0:
-                    l = l.strip('\n').split(' ')
+                    l = l.strip("\n").split(" ")
                     items = [int(i) for i in l[1:]]
                     uid = int(l[0])
                     testUniqueUsers.append(uid)
@@ -1040,15 +1096,19 @@ class Loader(BasicDataset):
         self.Graph = None
         print(f"{self.trainDataSize} interactions for training")
         print(f"{self.testDataSize} interactions for testing")
-        print(f"{world.dataset} Sparsity : {(self.trainDataSize + self.testDataSize) / self.n_users / self.m_items}")
+        print(
+            f"{world.dataset} Sparsity : {(self.trainDataSize + self.testDataSize) / self.n_users / self.m_items}"
+        )
 
         # (users,items), bipartite graph
-        self.UserItemNet = csr_matrix((np.ones(len(self.trainUser)), (self.trainUser, self.trainItem)),
-                                      shape=(self.n_user, self.m_item))
+        self.UserItemNet = csr_matrix(
+            (np.ones(len(self.trainUser)), (self.trainUser, self.trainItem)),
+            shape=(self.n_user, self.m_item),
+        )
         self.users_D = np.array(self.UserItemNet.sum(axis=1)).squeeze()
-        self.users_D[self.users_D == 0.] = 1
+        self.users_D[self.users_D == 0.0] = 1
         self.items_D = np.array(self.UserItemNet.sum(axis=0)).squeeze()
-        self.items_D[self.items_D == 0.] = 1.
+        self.items_D[self.items_D == 0.0] = 1.0
         # pre-calculate
         self._allPos = self.getUserPosItems(list(range(self.n_user)))
         self.__testDict = self.__build_test()
@@ -1078,54 +1138,65 @@ class Loader(BasicDataset):
         A_fold = []
         fold_len = (self.n_users + self.m_items) // self.folds
         for i_fold in range(self.folds):
-            start = i_fold*fold_len
+            start = i_fold * fold_len
             if i_fold == self.folds - 1:
                 end = self.n_users + self.m_items
             else:
                 end = (i_fold + 1) * fold_len
-            A_fold.append(self._convert_sp_mat_to_sp_tensor(
-                A[start:end]).coalesce().to(world.device))
+            A_fold.append(
+                self._convert_sp_mat_to_sp_tensor(A[start:end])
+                .coalesce()
+                .to(world.device)
+            )
         return A_fold
 
     def _convert_sp_mat_to_sp_tensor(self, X):
         coo = X.tocoo().astype(np.float32)
 
-        # 创建 indices
-        indices = np.vstack((coo.row, coo.col)).T  # 创建二维数组，包含行索引和列索引
-        # 转换为 MindSpore Tensor
-        indices = Tensor(indices, dtype=mindspore.int64)
+        # 获取矩阵的行数和列数
+        num_rows = coo.shape[0]
 
-        # 创建 values
-        # 数据转换为 MindSpore Tensor
-        values = Tensor(coo.data, dtype=mindspore.float32)
+        # 计算行指针数组
+        row_indices = coo.row
+        indptr = np.zeros(num_rows + 1, dtype=np.int64)
+        np.add.at(indptr, row_indices + 1, 1)
+        np.cumsum(indptr, out=indptr)
 
-        # 创建 COOTensor
-        # 注意：MindSpore 需要形状作为一个元组或列表传入
-        sparse_tensor = COOTensor(indices, values, shape=coo.shape)
-        return sparse_tensor
+        # 将行指针、列索引和数据值转换为 MindSpore Tensor
+        indptr_tensor = Tensor(indptr, dtype=mindspore.int32)
+        col_tensor = Tensor(coo.col, dtype=mindspore.int32)
+        data_tensor = Tensor(coo.data, dtype=mindspore.float32)
+
+        # 创建 CSRTensor
+        csr_tensor = mindspore.CSRTensor(
+            indptr_tensor, col_tensor, data_tensor, coo.shape
+        )
+        return csr_tensor
 
     def getSparseGraph(self):
         # print("loading adjacency matrix")
         if self.Graph is None:
             try:
-                pre_adj_mat = sp.load_npz(self.path + '/s_pre_adj_mat.npz')
+                pre_adj_mat = sp.load_npz(self.path + "/s_pre_adj_mat.npz")
                 print("successfully loaded...")
                 norm_adj = pre_adj_mat
             except:
                 print("generating adjacency matrix")
                 s = time()
                 adj_mat = sp.dok_matrix(
-                    (self.n_users + self.m_items, self.n_users + self.m_items), dtype=np.float32)
+                    (self.n_users + self.m_items, self.n_users + self.m_items),
+                    dtype=np.float32,
+                )
                 adj_mat = adj_mat.tolil()
                 R = self.UserItemNet.tolil()
-                adj_mat[:self.n_users, self.n_users:] = R
-                adj_mat[self.n_users:, :self.n_users] = R.T
+                adj_mat[: self.n_users, self.n_users :] = R
+                adj_mat[self.n_users :, : self.n_users] = R.T
                 adj_mat = adj_mat.todok()
                 # adj_mat = adj_mat + sp.eye(adj_mat.shape[0])
 
                 rowsum = np.array(adj_mat.sum(axis=1))
                 d_inv = np.power(rowsum, -0.5).flatten()
-                d_inv[np.isinf(d_inv)] = 0.
+                d_inv[np.isinf(d_inv)] = 0.0
                 d_mat = sp.diags(d_inv)
 
                 norm_adj = d_mat.dot(adj_mat)
@@ -1133,14 +1204,14 @@ class Loader(BasicDataset):
                 norm_adj = norm_adj.tocsr()
                 end = time()
                 print(f"costing {end-s}s, saved norm_mat...")
-                sp.save_npz(self.path + '/s_pre_adj_mat.npz', norm_adj)
+                sp.save_npz(self.path + "/s_pre_adj_mat.npz", norm_adj)
 
             if self.split == True:
                 self.Graph = self._split_A_hat(norm_adj)
                 print("done split matrix")
             else:
                 self.Graph = self._convert_sp_mat_to_sp_tensor(norm_adj)
-                self.Graph = self.Graph.coalesce()
+                # self.Graph = self.Graph.coalesce()
                 print("don't split the matrix")
         return self.Graph
 
@@ -1168,7 +1239,7 @@ class Loader(BasicDataset):
             feedback [-1]
         """
         # print(self.UserItemNet[users, items])
-        return np.array(self.UserItemNet[users, items]).astype('uint8').reshape((-1,))
+        return np.array(self.UserItemNet[users, items]).astype("uint8").reshape((-1,))
 
     def getUserPosItems(self, users):
         posItems = []

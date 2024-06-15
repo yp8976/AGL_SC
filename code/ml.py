@@ -1,6 +1,3 @@
-# ndcg 0.685 recall 0.169337979
-# from ast import If
-# from pyexpat import model
 import numpy as np
 import os
 
@@ -178,11 +175,11 @@ def init_vectors(rank, uLen, vLen):
     print("初始化向量")
 
     u_vectors = np.random.random([uLen, rank])
-    mindspore.common.initializer.HeNormal(u_vectors, nonlinearity="tanh")
-    u_vectors = preprocessing.normalize(u_vectors, norm="l2")
+    mindspore.common.initializer.HeNormal(u_vectors, nonlinearity="leaky_relu")
+    # u_vectors = preprocessing.normalize(u_vectors, norm="l2")
     v_vectors = np.random.random([vLen, rank])
-    mindspore.common.initializer.HeNormal(v_vectors, nonlinearity="tanh")
-    v_vectors = preprocessing.normalize(v_vectors, norm="l2")
+    mindspore.common.initializer.HeNormal(v_vectors, nonlinearity="leaky_relu")
+    # v_vectors = preprocessing.normalize(v_vectors, norm="l2")
 
     return u_vectors, v_vectors
 
@@ -375,30 +372,34 @@ class Net(nn.Cell):
 
     def init_weights(self):
         mindspore.common.initializer.HeNormal(
-            self.u.embedding_table, nonlinearity="tanh"
+            self.u.embedding_table, nonlinearity="leaky_relu'"
         )
         mindspore.common.initializer.HeNormal(
-            self.v.embedding_table, nonlinearity="tanh"
+            self.v.embedding_table, nonlinearity="leaky_relu'"
         )
         for layer in self.q_layers:
             # Kaiming Initialization for weights
             mindspore.common.initializer.HeNormal(
-                layer.weight.data, nonlinearity="tanh"
+                layer.weight.data, nonlinearity="leaky_relu'"
             )
 
             # Normal Initialization for Biases
-            mindspore.common.initializer.HeNormal(layer.bias.data, nonlinearity="tanh")
+            mindspore.common.initializer.HeNormal(
+                layer.bias.data, nonlinearity="leaky_relu'"
+            )
             # layer.bias.set_data(initializer(Normal(
             #     sigma=0.001, mean=0.0)), layer.bias.shape, layer.bias.dtype)
 
         for layer in self.p_layers:
             # Kaiming Initialization for weights
             mindspore.common.initializer.HeNormal(
-                layer.weight.data, nonlinearity="tanh"
+                layer.weight.data, nonlinearity="leaky_relu'"
             )
 
             # Normal Initialization for Biases
-            mindspore.common.initializer.HeNormal(layer.bias.data, nonlinearity="tanh")
+            mindspore.common.initializer.HeNormal(
+                layer.bias.data, nonlinearity="leaky_relu'"
+            )
             # layer.bias.set_data(initializer(Normal(
             #     sigma=0.001, mean=0.0)), layer.bias.shape, layer.bias.dtype)
 
@@ -437,21 +438,9 @@ class Net(nn.Cell):
         logp_R = ops.log_softmax(RR, axis=-1)  # [6001, 6001]
         p_R = ops.softmax(W, axis=-1)  # [6001, 6001]
         kl_sum_R = ops.KLDivLoss(reduction="sum")(logp_R, p_R)
-        C = utils2(W, RR)
-        loss = kl_sum_R + 0.0005 * C
+        # C = utils2(W, RR)
+        loss = kl_sum_R
         return loss, RR
-
-    def construct1(self, W):
-        RR = ops.mm(self.u.embedding_table, self.v.embedding_table.t())
-        logp_R = ops.log_softmax(RR, axis=-1)
-        tenW = W
-        p_R = ops.softmax(tenW, axis=-1)
-        kl_sum_R = ops.KLDivLoss(reduction="sum")(logp_R, p_R)
-        RR = self.mlp()
-        logp_R = ops.log_softmax(W, axis=-1)
-        p_R = ops.softmax(RR, axis=-1)
-        loss3 = ops.KLDivLoss(reduction="sum")(logp_R, p_R)
-        return loss3 + 0.1 * kl_sum_R, RR
 
 
 def train_mlp(config, model, optimizer, W, W2, k):
@@ -477,15 +466,14 @@ def train_mlp(config, model, optimizer, W, W2, k):
             # n20 = evaluate2(test_data_tr, R, k=20)
             model.set_train(False)
             # val = eval(model.u.weight, model.v.weight)
-            ndcg = multivae.eval_ndcg(model, W2, R, k=k)
-            recall = multivae.eval_recall(model, W2, R, k=k)
+            import multivae1
+
+            ndcg = multivae1.eval_ndcg(model, W2, R, k=k)
             print(
                 "|Epoch",
                 epoch,
                 "|NDCG:",
                 ndcg,
-                "|Recall:",
-                recall,
                 "|Loss",
                 loss.item(),
             )
@@ -560,7 +548,7 @@ def train_gnn(config, model, optimizer, W, W2):
                 bestE = epoch
                 bestR = R
                 converged_epochs = 0
-            if converged_epochs >= 10 and epoch > 100:
+            if converged_epochs >= 20 and epoch > 150:
                 print(
                     "模型收敛，停止训练。最优ndcg值为：",
                     best,
@@ -593,83 +581,10 @@ def train_gnn(config, model, optimizer, W, W2):
     return bestR
 
 
-def train_vae(config, model, optimizer, W, W2):
-    best = 0.0
-    bestR = []
-    bestE = 0
-    converged_epochs = 0
-
-    def forward_fn(W1):
-        loss, RR = model(W1)
-        loss2, z = model.vae(W1)
-        return loss + loss2, RR
-
-    try:
-        should_stop = False
-        for epoch in range(config["epochs"]):
-            start_time = time.time()
-            model.set_train()
-            grad_fn = mindspore.value_and_grad(
-                forward_fn, None, optimizer.parameters, has_aux=True
-            )
-            (loss, R), grads = grad_fn(W)
-            optimizer(grads)
-            model.set_train(False)
-            from multivae1 import eval_ndcg, eval_recall, eval_precision
-
-            val = eval_ndcg(model, W2, R, k=20)
-            val_r = eval_recall(model, W2, R, k=20)
-            percison = eval_precision(model, W2, R, k=20)
-
-            print("=" * 89)
-            print(
-                "| Epoch {:2d}|loss {:4.5f} | percision {:4.5f} | r20 {:4.5f}| n20 {:4.5f} |".format(
-                    epoch, loss.item(), percison, val_r, val
-                )
-            )
-            converged_epochs += 1
-            if val > best:
-                best = val
-                bestE = epoch
-                bestR = R
-                converged_epochs = 0
-            if converged_epochs >= 10 and epoch > 50:
-                print(
-                    "模型收敛，停止训练。最优ndcg值为：",
-                    best,
-                    "最优epoch为：\n",
-                    bestE,
-                    "最优R为：\n",
-                    bestR,
-                )
-
-                print("保存模型参数")
-                break
-
-            if epoch == config["epochs"] - 1:
-                print("模型收敛，停止训练。最优ndcg值为：", best, "最优R为：\n", bestR)
-            if should_stop:
-                break
-
-    except KeyboardInterrupt:
-        print("-" * 89)
-        print("Exiting from training early")
-
-    print("=" * 50)
-    train_time = time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time))
-    print("训练时间:", train_time)
-    print(
-        "| 训练结束 | 最优轮:{0}|最优 NDCG@{1}:{2}".format(bestE, config["topk"], best)
-    )
-    print("=" * 50)
-
-    return bestR
-
-
 config = {
-    "dataset": "100K",
-    "topk": 20,
-    "lr": 1e-4,
+    "dataset": "Movielens1M",
+    "topk": 40,
+    "lr": 1e-3,
     "wd": 0.0,
     "rank": 128,
     "batch_size": 512,
@@ -677,12 +592,11 @@ config = {
     "epochs": 1000,
     "total_anneal_steps": 200000,
     "anneal_cap": 0.2,
-    "seed": 2020,
+    "seed": 2024,
 }
 
 if __name__ == "__main__":
     from evalu import run  # 导入评估
-    import multivae
     import os
 
     mindspore.set_context(device_target="GPU", device_id=1)
@@ -741,7 +655,7 @@ if __name__ == "__main__":
     v_vectors = mindspore.Tensor.from_numpy(v_vector).astype(mindspore.float32)
 
     model = Net(config, u_vectors, v_vectors)
-    optimizer = nn.Adam(model.trainable_params(), learning_rate=0.0001)
+    optimizer = nn.Adam(model.trainable_params(), learning_rate=config["lr"])
 
     R_fake_path = r"R_" + dataset + ".ckpt"
     R_fake_np = r"R_" + dataset + ".npy"
@@ -780,11 +694,4 @@ if __name__ == "__main__":
         }
         save_obj = {**model_params, **optimizer_params}
         mindspore.save_checkpoint(save_obj, R_fake_path)
-        np.save(R_fake_np, R_fake.asnumpy())
-
-    print("重新训练矩阵z.")
-    lr = mindspore.Parameter(
-        mindspore.Tensor(config["lr"] * 0.01, mindspore.float32), name="learning_rate"
-    )
-    optimizer.learning_rate = lr
-    z = train_vae(config, model, optimizer, R_fake, W2)
+        # np.save(R_fake_np, R_fake.asnumpy())
